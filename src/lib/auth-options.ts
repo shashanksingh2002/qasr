@@ -32,7 +32,7 @@ export const authOptions: NextAuthOptions = {
 
       return true;
     },
-    async session({ session }: any) {
+    async session({ session }) {
       return session;
     },
   },
