@@ -33,6 +33,8 @@ export default function Home() {
           <Popover>
             <PopoverTrigger>
               <Image
+                width={10}
+                height={10}
                 src={session?.user?.image || '/default-avatar.png'}
                 alt="Profile"
                 className="w-10 h-10 rounded-full object-cover cursor-pointer"
@@ -51,7 +53,7 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="p-8">
+      <div className="p-8">
         <h2 className="text-2xl font-semibold mb-4">Welcome to Qasr!</h2>
         <p className="mb-6">Your real-time video meetings platform.</p>
 
@@ -89,7 +91,7 @@ export default function Home() {
             <JoinRoomTab />
           </TabsContent>
         </Tabs>
-      </main>
+      </div>
     </div>
   );
 }
