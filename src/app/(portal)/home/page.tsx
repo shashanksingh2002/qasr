@@ -13,9 +13,10 @@ import { toast } from "sonner";
 import VideosTab from "./components/my-recordings";
 import CreateRoomTab from "./components/create-room";
 import JoinRoomTab from "./components/join-room";
+import Image from "next/image";
 
 export default function Home() {
-  const { data: session, status }: any = useSession();
+  const { data: session, status } = useSession();
 
   const handleLogout = async () => {
     await signOut({ callbackUrl: "/signin" });
@@ -31,7 +32,7 @@ export default function Home() {
         <div className="flex items-center space-x-4">
           <Popover>
             <PopoverTrigger>
-              <img
+              <Image
                 src={session?.user?.image || '/default-avatar.png'}
                 alt="Profile"
                 className="w-10 h-10 rounded-full object-cover cursor-pointer"
