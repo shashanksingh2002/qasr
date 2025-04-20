@@ -8,7 +8,7 @@ interface Video {
 }
 
 export default function VideosTab() {
-  const [recentVideos, setRecentVideos] = useState<Video[]>([
+  const [recentVideos] = useState<Video[]>([
       { title: "Room 1 Video", link: "/video/1" },
       { title: "Room 2 Video", link: "/video/2" },
     ]);
