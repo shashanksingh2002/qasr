@@ -14,9 +14,17 @@ import {
 import { toast } from "sonner";
 import { getUserRooms } from "@/app/actions/rooms";
 
+interface RoomTypes {
+    name: string | null,
+    id: number,
+    roomId: string,
+    createdAt: Date,
+    createdBy: string,
+}
+
 export default function JoinRoomTab() {
   const [roomCode, setRoomCode] = useState("");
-  const [rooms, setRooms] = useState<any[]>([]);
+  const [rooms, setRooms] = useState<RoomTypes[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const limit = 5;
