@@ -1,7 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import GitHubProvider from "next-auth/providers/github";
 import { db } from "./db";
-import { Users as users } from "@/db/schema/users";
+import { Users } from "@/db/schema/users";
 import { eq } from "drizzle-orm";
 
 export const authOptions: NextAuthOptions = {
@@ -13,22 +13,27 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ user }) {
-    //   const existing = await db.query.users.findFirst({
-    //     where: eq(users.email, user.email!),
-    //   });
+      const existingUser = await db
+        .select()
+        .from(Users)
+        .where(eq(Users.email, user.email!))
+        .execute();
 
-    //   if (!existing) {
-    //     await db.insert(users).values({
-    //       name: user.name ?? "",
-    //       email: user.email!,
-    //       image: user.image ?? "",
-    //     });
-    //   }
+      if (existingUser.length === 0) {
+        await db
+          .insert(Users)
+          .values({
+            name: user.name,
+            email: user.email!,
+            avatar: user.image,
+          })
+          .execute();
+      }
 
       return true;
     },
-    async session({ session }) {
-      // Add user id or extra info if needed
+    async session({ user, session }: any) {
+      session.user.id = user.id;
       return session;
     },
   },
