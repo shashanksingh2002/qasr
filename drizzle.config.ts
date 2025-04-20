@@ -1,8 +1,18 @@
 export default {
+  dialect: "postgresql",
   schema: "./src/db/schema",
   out: "./src/db/migrations",
-  driver: "pg",
   dbCredentials: {
-    connectionString: process.env.DATABASE_URL!,
+    url: process.env.DATABASE_URL!,
   },
+  introspect: {
+    casing: "camel",
+  },
+  migrations: {
+    prefix: "timestamp",
+    table: "drizzle_migrations",
+    schema: "public",
+  },
+  verbose: true,
+  strict: true,
 };
