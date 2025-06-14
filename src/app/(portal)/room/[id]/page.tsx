@@ -80,6 +80,7 @@ export default function RoomPage() {
     useEffect(() => {
         if (!localStream) return;
 
+        console.log("Inside")
         if (socket.connected) {
             console.log("🔗 Already connected; emitting join-room:", roomId);
             socket.emit("join-room", roomId);
