@@ -16,55 +16,38 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Socket initialization & global logging
-// ─────────────────────────────────────────────────────────────────────────────
-const socket: Socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
+// ─── configure URL (fallback for local dev) ──────────────────────────────────
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+const socket: Socket = io(SOCKET_URL, {
     transports: ["websocket"],
     withCredentials: true,
     autoConnect: true,
 });
 
-// Log connection lifecycle
+// ─── global socket logs ─────────────────────────────────────────────────────
 socket.on("connect", () =>
-    console.log("✅ Socket connected:", socket.id)
+    console.log("✅ Socket connected:", socket.id, "→", SOCKET_URL)
 );
 socket.on("connect_error", (err) =>
     console.error("❌ Socket connect_error:", err)
 );
-// Log any incoming event
 socket.onAny((event, ...args) =>
     console.log("⬅️ Client got event:", event, args)
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Type definitions
-// ─────────────────────────────────────────────────────────────────────────────
-interface SignalPayload {
-    signal: SignalData;
-    callerId: string;
-}
-interface AllUsersPayload {
-    userId: string;
-    userName: string;
-}
-interface UserJoinedRoomPayload {
-    userId: string;
-    userName: string;
-}
+// ─── types ──────────────────────────────────────────────────────────────────
+interface SignalPayload { signal: SignalData; callerId: string; }
+interface AllUsersPayload { userId: string; userName: string; }
+interface UserJoinedRoomPayload { userId: string; userName: string; }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main component
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── main component ─────────────────────────────────────────────────────────
 export default function RoomPage() {
     const { id: roomId } = useParams();
     console.log("🏷️ roomId param:", roomId);
 
     const router = useRouter();
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [remoteStreams, setRemoteStreams] = useState<
-        Record<string, MediaStream>
-    >({});
+    const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
     const [userNames, setUserNames] = useState<Record<string, string>>({});
     const [chatMessages, setChatMessages] = useState<string[]>([]);
     const [isVideoOn, setIsVideoOn] = useState(true);
@@ -72,53 +55,51 @@ export default function RoomPage() {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const peersRef = useRef<Record<string, Peer.Instance>>({});
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // 1) Acquire local camera/mic
-    // ───────────────────────────────────────────────────────────────────────────
+    // 1) getUserMedia
     useEffect(() => {
         navigator.mediaDevices
             .getUserMedia({ video: true, audio: true })
             .then((stream) => {
                 console.log("🎥 got local media stream");
                 setLocalStream(stream);
-                const vid = document.getElementById(
-                    "local-video"
-                ) as HTMLVideoElement;
+                const vid = document.getElementById("local-video") as HTMLVideoElement;
                 if (vid) vid.srcObject = stream;
             })
             .catch((err) => console.error("🔴 getUserMedia failed:", err));
     }, []);
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // 2) Once we have localStream, join room and wire up all socket handlers
-    // ───────────────────────────────────────────────────────────────────────────
+    // 2) once we have localStream, wait for socket to connect then emit join-room
     useEffect(() => {
-        console.log("❇️ localStream effect:", {
-            localStream,
-            roomId,
-            connected: socket.connected,
-        });
         if (!localStream) return;
 
-        console.log("📤 Emitting join-room:", roomId);
-        socket.emit("join-room", roomId);
+        if (socket.connected) {
+            console.log("🔗 Already connected; emitting join-room:", roomId);
+            socket.emit("join-room", roomId);
+        } else {
+            console.log("⌛ Waiting for socket.connect to emit join-room");
+            socket.once("connect", () => {
+                console.log("✅ Socket connected; emitting join-room:", roomId);
+                socket.emit("join-room", roomId);
+            });
+        }
 
+        // ─── socket event handlers ───────────────────────────────────────────────
         socket.on("all-users", (users: AllUsersPayload[]) => {
             console.log("👥 all-users payload:", users);
             users.forEach(({ userId, userName }) => {
+                console.log(`➕ createPeer for ${userId}`);
                 if (!socket.id) {
-                    console.warn("Socket ID is undefined, skipping peer creation for", userId);
+                    console.warn("Socket id is undefined, skipping createPeer for", userId);
                     return;
                 }
-                console.log(`➕ Creating peer (initiator) for ${userId}`);
                 const peer = createPeer(userId, socket.id, localStream);
                 peersRef.current[userId] = peer;
-                setUserNames((prev) => ({ ...prev, [userId]: userName }));
+                setUserNames((p) => ({ ...p, [userId]: userName }));
             });
         });
 
         socket.on("user-joined", ({ signal, callerId }: SignalPayload) => {
-            console.log("📡 user-joined (signal) from:", callerId);
+            console.log("📡 user-joined →", callerId);
             const peer = addPeer(signal, callerId, localStream);
             peersRef.current[callerId] = peer;
         });
@@ -135,31 +116,23 @@ export default function RoomPage() {
             "user-joined-room",
             ({ userId, userName }: UserJoinedRoomPayload) => {
                 console.log("📣 user-joined-room:", userId, userName);
-                setUserNames((prev) => ({ ...prev, [userId]: userName }));
-                toast.success(`${userName} joined the meeting`);
+                setUserNames((p) => ({ ...p, [userId]: userName }));
+                toast.success(`${userName} joined`);
             }
         );
 
-        socket.on("user-left", (socketId: string) => {
-            console.log("📤 user-left:", socketId);
-            toast(`${userNames[socketId] ?? "Someone"} left`);
-            setRemoteStreams((prev) => {
-                const c = { ...prev };
-                delete c[socketId];
-                return c;
-            });
-            setUserNames((prev) => {
-                const c = { ...prev };
-                delete c[socketId];
-                return c;
-            });
-            peersRef.current[socketId]?.destroy();
-            delete peersRef.current[socketId];
+        socket.on("user-left", (sid: string) => {
+            console.log("📤 user-left:", sid);
+            toast(`${userNames[sid] ?? "Someone"} left`);
+            setRemoteStreams((p) => { const c = { ...p }; delete c[sid]; return c; });
+            setUserNames((p) => { const c = { ...p }; delete c[sid]; return c; });
+            peersRef.current[sid]?.destroy();
+            delete peersRef.current[sid];
         });
 
         socket.on("chat-message", (msg: string) => {
             console.log("💬 chat-message:", msg);
-            setChatMessages((prev) => [...prev, msg]);
+            setChatMessages((p) => [...p, msg]);
         });
 
         return () => {
@@ -170,16 +143,10 @@ export default function RoomPage() {
             socket.off("user-left");
             socket.off("chat-message");
         };
-    }, [localStream]);
+    }, [localStream, roomId]);
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // Peer helpers
-    // ───────────────────────────────────────────────────────────────────────────
-    const createPeer = (
-        userToSignal: string,
-        callerId: string,
-        stream: MediaStream
-    ): Peer.Instance => {
+    // ─── Peer helpers ──────────────────────────────────────────────────────────
+    const createPeer = (userToSignal: string, callerId: string, stream: MediaStream) => {
         const peer = new Peer({ initiator: true, trickle: false, stream });
         peer.on("signal", (signal) => {
             console.log("🔔 createPeer.signal →", userToSignal);
@@ -187,16 +154,12 @@ export default function RoomPage() {
         });
         peer.on("stream", (s) => {
             console.log("🖥️ createPeer.stream from", userToSignal);
-            setRemoteStreams((prev) => ({ ...prev, [userToSignal]: s }));
+            setRemoteStreams((p) => ({ ...p, [userToSignal]: s }));
         });
         return peer;
     };
 
-    const addPeer = (
-        incomingSignal: SignalData,
-        callerId: string,
-        stream: MediaStream
-    ): Peer.Instance => {
+    const addPeer = (incomingSignal: SignalData, callerId: string, stream: MediaStream) => {
         const peer = new Peer({ initiator: false, trickle: false, stream });
         peer.on("signal", (signal) => {
             console.log("🔔 addPeer.signal back to", callerId);
@@ -205,7 +168,7 @@ export default function RoomPage() {
         peer.signal(incomingSignal);
         peer.on("stream", (s) => {
             console.log("🖥️ addPeer.stream from", callerId);
-            setRemoteStreams((prev) => ({ ...prev, [callerId]: s }));
+            setRemoteStreams((p) => ({ ...p, [callerId]: s }));
         });
         return peer;
     };
