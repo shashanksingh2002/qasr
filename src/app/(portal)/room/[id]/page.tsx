@@ -22,7 +22,8 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001"
 const socket = io(SOCKET_URL, {
     transports: ["websocket"],       // ← no polling
     withCredentials: true,
-    path: "/socket.io",              // match your server’s path
+    path: "/socket.io",
+    autoConnect: false// match your server’s path
 });
 
 
