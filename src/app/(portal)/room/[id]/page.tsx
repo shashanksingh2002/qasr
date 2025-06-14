@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { io, Socket } from "socket.io-client";
+import { io } from "socket.io-client";
 import Peer, { SignalData } from "simple-peer";
 import { Button } from "@/components/ui/button";
 import {
