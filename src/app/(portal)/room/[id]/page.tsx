@@ -36,7 +36,10 @@ socket.on("connect_error", (err) =>
 socket.onAny((event, ...args) =>
     console.log("⬅️ Client got event:", event, args)
 );
-
+socket.io.on("error", (err) => console.error("❌ Engine.IO error:", err));
+socket.on("connect_error", (err) =>
+    console.error("❌ socket connect_error:", err)
+);
 // ─── types ──────────────────────────────────────────────────────────────────
 interface SignalPayload { signal: SignalData; callerId: string; }
 interface AllUsersPayload { userId: string; userName: string; }
