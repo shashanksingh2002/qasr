@@ -73,7 +73,7 @@ export default function RoomPage() {
         });
         return peer;
     };
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const addPeer = (incomingSignal: any, callerId: string, stream: MediaStream | null) => {
         const peer = new Peer({ initiator: false, trickle: false, stream: stream ?? undefined });
         peer.on("signal", (signal) => {
