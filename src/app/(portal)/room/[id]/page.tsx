@@ -19,7 +19,7 @@ import { toast } from "sonner";
 // ─── configure URL (fallback for local dev) ──────────────────────────────────
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 const socket: Socket = io(SOCKET_URL, {
-    transports: ["websocket"],
+    transports: ["polling", "websocket"],
     withCredentials: true,
     autoConnect: true,
 });
@@ -211,7 +211,7 @@ export default function RoomPage() {
         Object.values(peersRef.current).forEach((peer) => peer.destroy());
         peersRef.current = {};
         socket.disconnect();
-        router.push("/");
+        router.push("/home");
     };
 
     const sendChat = (msg: string) => {
