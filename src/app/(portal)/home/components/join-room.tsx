@@ -2,13 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { io } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { getUserRooms } from "@/app/actions/rooms";
-
-const socket = io("http://localhost:3001");
 
 interface RoomTypes {
   name: string | null;
