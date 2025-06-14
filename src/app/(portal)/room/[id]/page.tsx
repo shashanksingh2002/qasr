@@ -18,7 +18,9 @@ interface UserJoinedRoomPayload {
     userName: string;
 }
 
-const socket: Socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!);
+const socket: Socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
+    transports: ["websocket"]
+});
 
 const POKEMON_NAMES = [
     "Pikachu", "Charmander", "Bulbasaur", "Squirtle", "Jigglypuff",
