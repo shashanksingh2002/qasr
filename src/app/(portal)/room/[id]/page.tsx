@@ -18,11 +18,13 @@ import { toast } from "sonner";
 
 // ─── configure URL (fallback for local dev) ──────────────────────────────────
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
-const socket: Socket = io(SOCKET_URL, {
-    transports: ["polling", "websocket"],
+// client
+const socket = io(SOCKET_URL, {
+    transports: ["websocket"],       // ← no polling
     withCredentials: true,
-    autoConnect: true,
+    path: "/socket.io",              // match your server’s path
 });
+
 
 console.log("🔗 Attempting socket.io connection to", SOCKET_URL);
 
