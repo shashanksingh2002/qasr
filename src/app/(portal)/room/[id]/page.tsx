@@ -16,30 +16,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-// ─── Configure & initialize socket (autoConnect: false) ────────────────────
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
-const socket: Socket = io(SOCKET_URL, {
-    path: "/socket.io",
-    transports: ["websocket"],
-    withCredentials: true,
-    autoConnect: false,    // ← Prevent immediate handshake
-});
-
-// ─── Global debug logs ──────────────────────────────────────────────────────
-socket.onAny((event, ...args) => console.log("⬅️ Client got event:", event, args));
-socket.on("connect_error", (err) => console.error("❌ Socket connect_error:", err));
-socket.io.on("error", (err) => console.error("❌ Engine.IO error:", err));
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 interface SignalPayload { signal: SignalData; callerId: string; }
 interface AllUsersPayload { userId: string; userName: string; }
 interface UserJoinedRoomPayload { userId: string; userName: string; }
 
-// ─── Main component ─────────────────────────────────────────────────────────
 export default function RoomPage() {
     const { id: roomId } = useParams();
-    console.log("🏷️ roomId param:", roomId);
-
     const router = useRouter();
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
@@ -49,110 +31,97 @@ export default function RoomPage() {
     const [isAudioOn, setIsAudioOn] = useState(true);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const peersRef = useRef<Record<string, Peer.Instance>>({});
+    const socketRef = useRef<Socket | undefined>(undefined);
 
-    // ─── 1) Get user media ─────────────────────────────────────────────────────
+    // 1) getUserMedia
     useEffect(() => {
-        navigator.mediaDevices
-            .getUserMedia({ video: true, audio: true })
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then(stream => {
                 console.log("🎥 got local media stream");
                 setLocalStream(stream);
-                const vid = document.getElementById("local-video") as HTMLVideoElement;
-                if (vid) vid.srcObject = stream;
             })
             .catch(err => console.error("🔴 getUserMedia failed:", err));
     }, []);
 
-    // ─── 2) Register handlers & then connect ────────────────────────────────────
+    // 2) build socket once localStream is ready
     useEffect(() => {
         if (!localStream) return;
+        if (socketRef.current) return;            // guard against Strict Mode double-run
 
-        // 2a) Register the one‐time connect listener
+        const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL!;
+        const socket = io(SOCKET_URL, {
+            path: "/socket.io",
+            transports: ["websocket"],              // skip polling entirely
+            withCredentials: true,
+            autoConnect: false,                     // we’ll connect manually
+        });
+        socketRef.current = socket;
+
+        // debug logs
+        socket.onAny((e, ...args) => console.log("⬅️ Client got event:", e, args));
+        socket.on("connect_error", err => console.error("❌ connect_error:", err));
+        socket.io.on("error", err => console.error("❌ engine error:", err));
+
+        // once connected, join
         socket.once("connect", () => {
-            console.log("✅ Socket connected:", socket.id, "→", SOCKET_URL);
+            console.log("✅ Socket connected:", socket.id);
             socket.emit("join-room", roomId);
         });
 
-        // 2b) If we’d already connected earlier, fire immediately
+        // if for some reason already connected (hot reload), emit immediately
         if (socket.connected) {
-            console.log("🔗 Already connected; emitting join-room:", roomId);
+            console.log("🔗 already connected; joining:", roomId);
             socket.emit("join-room", roomId);
-        } else {
-            console.log("⌛ Waiting for socket.connect to emit join-room");
         }
 
-        // 2c) Ongoing event handlers
+        // handle all-users
         socket.on("all-users", (users: AllUsersPayload[]) => {
-            console.log("👥 all-users payload:", users);
+            console.log("👥 all-users:", users);
             users.forEach(({ userId, userName }) => {
-                console.log(`➕ createPeer for ${userId}`);
                 const peer = new Peer({ initiator: true, trickle: false, stream: localStream });
-                peer.on("signal", signal => {
-                    console.log("🔔 createPeer.signal →", userId);
-                    socket.emit("sending-signal", { userToSignal: userId, callerId: socket.id, signal });
-                });
-                peer.on("stream", s => {
-                    console.log("🖥️ createPeer.stream from", userId);
-                    setRemoteStreams(p => ({ ...p, [userId]: s }));
-                });
+                peer.on("signal", s => socket.emit("sending-signal", { userToSignal: userId, callerId: socket.id, signal: s }));
+                peer.on("stream", s => setRemoteStreams(p => ({ ...p, [userId]: s })));
                 peersRef.current[userId] = peer;
                 setUserNames(p => ({ ...p, [userId]: userName }));
             });
         });
 
         socket.on("user-joined", ({ signal, callerId }: SignalPayload) => {
-            console.log("📡 user-joined →", callerId);
             const peer = new Peer({ initiator: false, trickle: false, stream: localStream });
-            peer.on("signal", sig => {
-                console.log("🔔 addPeer.signal back to", callerId);
-                socket.emit("returning-signal", { signal: sig, callerId });
-            });
+            peer.on("signal", s => socket.emit("returning-signal", { signal: s, callerId }));
             peer.signal(signal);
-            peer.on("stream", s => {
-                console.log("🖥️ addPeer.stream from", callerId);
-                setRemoteStreams(p => ({ ...p, [callerId]: s }));
-            });
+            peer.on("stream", s => setRemoteStreams(p => ({ ...p, [callerId]: s })));
             peersRef.current[callerId] = peer;
         });
 
         socket.on("receiving-returned-signal", ({ signal, id }: { signal: SignalData; id: string }) => {
-            console.log("📶 receiving-returned-signal from", id);
             peersRef.current[id]?.signal(signal);
         });
 
         socket.on("user-joined-room", ({ userId, userName }: UserJoinedRoomPayload) => {
-            console.log("📣 user-joined-room:", userId, userName);
             setUserNames(p => ({ ...p, [userId]: userName }));
             toast.success(`${userName} joined`);
         });
 
-        socket.on("user-left", (sid: string) => {
-            console.log("📤 user-left:", sid);
-            toast(`${userNames[sid] ?? "Someone"} left`);
+        socket.on("user-left", sid => {
             setRemoteStreams(p => { const c = { ...p }; delete c[sid]; return c; });
             setUserNames(p => { const c = { ...p }; delete c[sid]; return c; });
             peersRef.current[sid]?.destroy();
             delete peersRef.current[sid];
+            toast(`User left`);
         });
 
-        socket.on("chat-message", (msg: string) => {
-            console.log("💬 chat-message:", msg);
+        socket.on("chat-message", msg => {
             setChatMessages(p => [...p, msg]);
         });
 
-        // 2d) Finally, initiate the connection
+        // now actually connect
         console.log("🔗 Starting socket connection");
         socket.connect();
 
-        // Cleanup
         return () => {
-            socket.disconnect();
-            socket.off("all-users");
-            socket.off("user-joined");
-            socket.off("receiving-returned-signal");
-            socket.off("user-joined-room");
-            socket.off("user-left");
-            socket.off("chat-message");
+            socketRef.current?.disconnect();
+            socketRef.current = undefined;
         };
     }, [localStream, roomId]);
 
@@ -181,12 +150,12 @@ export default function RoomPage() {
         console.log("👋 Leaving meeting");
         Object.values(peersRef.current).forEach(p => p.destroy());
         peersRef.current = {};
-        socket.disconnect();
+        socketRef.current?.disconnect();
         router.push("/home");
     };
     const sendChat = (m: string) => {
         console.log("🚀 Sending chat:", m);
-        socket.emit("chat-message", m);
+        socketRef.current?.emit("chat-message", m);
         setChatMessages(p => [...p, `You: ${m}`]);
     };
 
