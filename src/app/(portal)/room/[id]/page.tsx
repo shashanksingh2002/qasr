@@ -22,6 +22,7 @@ import { toast } from "sonner";
 const socket: Socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!, {
     transports: ["websocket"],
     withCredentials: true,
+    autoConnect: true,
 });
 
 // Log connection lifecycle
