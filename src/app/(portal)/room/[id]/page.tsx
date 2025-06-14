@@ -24,6 +24,8 @@ const socket: Socket = io(SOCKET_URL, {
     autoConnect: true,
 });
 
+console.log("🔗 Attempting socket.io connection to", SOCKET_URL);
+
 // ─── global socket logs ─────────────────────────────────────────────────────
 socket.on("connect", () =>
     console.log("✅ Socket connected:", socket.id, "→", SOCKET_URL)
