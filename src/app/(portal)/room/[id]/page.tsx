@@ -2,12 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { io } from "socket.io-client";
-import Peer from "simple-peer";
+import { io, Socket } from "socket.io-client";
+import Peer, { SignalData } from "simple-peer";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, Monitor, LogOut, MessageSquare } from "lucide-react";
+import { toast } from "sonner";
 
-const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!);
+interface SignalPayload {
+    signal: SignalData;
+    callerId: string;
+}
+
+interface UserJoinedRoomPayload {
+    userId: string;
+    userName: string;
+}
+
+const socket: Socket = io(process.env.NEXT_PUBLIC_SOCKET_URL!);
 
 const POKEMON_NAMES = [
     "Pikachu", "Charmander", "Bulbasaur", "Squirtle", "Jigglypuff",
@@ -15,7 +26,7 @@ const POKEMON_NAMES = [
     "Vulpix", "Machop", "Gastly", "Onix", "Lapras"
 ];
 
-function getRandomPokemon() {
+function getRandomPokemon(): string {
     return POKEMON_NAMES[Math.floor(Math.random() * POKEMON_NAMES.length)];
 }
 
@@ -23,13 +34,13 @@ export default function RoomPage() {
     const { id: roomId } = useParams();
     const router = useRouter();
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [remoteStreams, setRemoteStreams] = useState<{ [key: string]: MediaStream }>({});
-    const [userNames, setUserNames] = useState<{ [key: string]: string }>({});
+    const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+    const [userNames, setUserNames] = useState<Record<string, string>>({});
     const [isVideoEnabled, setIsVideoEnabled] = useState(true);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [chatMessages, setChatMessages] = useState<string[]>([]);
-    const peersRef = useRef<{ [key: string]: Peer.Instance }>({});
+    const peersRef = useRef<Record<string, Peer.Instance>>({});
 
     useEffect(() => {
         (async () => {
@@ -37,56 +48,104 @@ export default function RoomPage() {
             setLocalStream(stream);
             const localVideo = document.getElementById("local-video") as HTMLVideoElement;
             if (localVideo) localVideo.srcObject = stream;
-            socket.emit("join-room", roomId);
         })();
-    }, [roomId]);
+    }, []);
 
     useEffect(() => {
+        if (!localStream) return;
+
+        socket.emit("join-room", roomId);
+        console.log(`[SOCKET] Joined room: ${roomId}`);
+
         socket.on("all-users", (users: string[]) => {
+            console.log("[SOCKET] Received list of users in room:", users);
             users.forEach((userId) => {
-                const peer = createPeer(userId, socket.id as string, localStream);
+                const peer = createPeer(userId, socket.id!, localStream);
                 peersRef.current[userId] = peer;
                 setUserNames((prev) => ({ ...prev, [userId]: getRandomPokemon() }));
             });
         });
 
-        socket.on("user-joined", (payload) => {
-            const peer = addPeer(payload.signal, payload.callerId, localStream);
-            peersRef.current[payload.callerId] = peer;
-            setUserNames((prev) => ({ ...prev, [payload.callerId]: getRandomPokemon() }));
+        socket.on("user-joined", ({ signal, callerId }: SignalPayload) => {
+            console.log("[SOCKET] Received offer from:", callerId);
+            const peer = addPeer(signal, callerId, localStream);
+            peersRef.current[callerId] = peer;
+            setUserNames((prev) => ({ ...prev, [callerId]: getRandomPokemon() }));
+
             peer.on("signal", (signal) => {
-                socket.emit("returning-signal", { signal, callerId: payload.callerId });
+                socket.emit("returning-signal", { signal, callerId });
             });
         });
 
-        socket.on("receiving-returned-signal", (payload) => {
-            const peer = peersRef.current[payload.id];
-            peer?.signal(payload.signal);
+        socket.on("receiving-returned-signal", ({ signal, id }: { signal: SignalData; id: string }) => {
+            console.log("[SOCKET] Received answer from:", id);
+            const peer = peersRef.current[id];
+            peer?.signal(signal);
         });
 
-        socket.on("chat-message", (message) => {
+        socket.on("chat-message", (message: string) => {
+            console.log("[CHAT] Message received:", message);
             setChatMessages((prev) => [...prev, message]);
         });
+
+        socket.on("user-joined-room", ({ userId, userName }: UserJoinedRoomPayload) => {
+            console.log(`[EVENT] ${userName} (${userId}) joined the room`);
+            toast(`${userName} joined the meeting`);
+        });
+
+        socket.on("user-left", (socketId: string) => {
+            console.log(`[EVENT] User left: ${socketId}`);
+            const name = userNames[socketId] || "Someone";
+            toast(`${name} left the meeting`);
+
+            setRemoteStreams((prev) => {
+                const updated = { ...prev };
+                delete updated[socketId];
+                return updated;
+            });
+
+            setUserNames((prev) => {
+                const updated = { ...prev };
+                delete updated[socketId];
+                return updated;
+            });
+
+            if (peersRef.current[socketId]) {
+                peersRef.current[socketId].destroy();
+                delete peersRef.current[socketId];
+            }
+        });
+
+        return () => {
+            socket.off("all-users");
+            socket.off("user-joined");
+            socket.off("receiving-returned-signal");
+            socket.off("chat-message");
+            socket.off("user-joined-room");
+            socket.off("user-left");
+        };
     }, [localStream]);
 
-    const createPeer = (userToSignal: string, callerId: string, stream: MediaStream | null) => {
-        const peer = new Peer({ initiator: true, trickle: false, stream: stream ?? undefined });
-        peer.on("signal", (signal) => {
+    const createPeer = (userToSignal: string, callerId: string, stream: MediaStream): Peer.Instance => {
+        const peer = new Peer({ initiator: true, trickle: false, stream });
+        peer.on("signal", (signal: SignalData) => {
             socket.emit("sending-signal", { userToSignal, callerId, signal });
         });
-        peer.on("stream", (stream) => {
+        peer.on("stream", (stream: MediaStream) => {
+            console.log("[WEBRTC] Received remote stream from:", userToSignal);
             setRemoteStreams((prev) => ({ ...prev, [userToSignal]: stream }));
         });
         return peer;
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const addPeer = (incomingSignal: any, callerId: string, stream: MediaStream | null) => {
-        const peer = new Peer({ initiator: false, trickle: false, stream: stream ?? undefined });
-        peer.on("signal", (signal) => {
+
+    const addPeer = (incomingSignal: SignalData, callerId: string, stream: MediaStream): Peer.Instance => {
+        const peer = new Peer({ initiator: false, trickle: false, stream });
+        peer.on("signal", (signal: SignalData) => {
             socket.emit("returning-signal", { signal, callerId });
         });
         peer.signal(incomingSignal);
-        peer.on("stream", (stream) => {
+        peer.on("stream", (stream: MediaStream) => {
+            console.log("[WEBRTC] Received remote stream from:", callerId);
             setRemoteStreams((prev) => ({ ...prev, [callerId]: stream }));
         });
         return peer;
@@ -144,6 +203,7 @@ export default function RoomPage() {
                 {allParticipants.map(({ id, stream, name }) => (
                     <div key={id} className="relative">
                         <video
+                            id={id === "local" ? "local-video" : `remote-${id}`}
                             autoPlay
                             playsInline
                             muted={id === "local"}
