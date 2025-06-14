@@ -28,16 +28,15 @@ export default function RoomPage() {
     const [isVideoEnabled, setIsVideoEnabled] = useState(true);
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
     const [isChatOpen, setIsChatOpen] = useState(false);
+    const [chatMessages, setChatMessages] = useState<string[]>([]);
     const peersRef = useRef<{ [key: string]: Peer.Instance }>({});
 
     useEffect(() => {
         (async () => {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             setLocalStream(stream);
-
             const localVideo = document.getElementById("local-video") as HTMLVideoElement;
             if (localVideo) localVideo.srcObject = stream;
-
             socket.emit("join-room", roomId);
         })();
     }, [roomId]);
@@ -55,11 +54,18 @@ export default function RoomPage() {
             const peer = addPeer(payload.signal, payload.callerId, localStream);
             peersRef.current[payload.callerId] = peer;
             setUserNames((prev) => ({ ...prev, [payload.callerId]: getRandomPokemon() }));
+            peer.on("signal", (signal) => {
+                socket.emit("returning-signal", { signal, callerId: payload.callerId });
+            });
         });
 
         socket.on("receiving-returned-signal", (payload) => {
             const peer = peersRef.current[payload.id];
             peer?.signal(payload.signal);
+        });
+
+        socket.on("chat-message", (message) => {
+            setChatMessages((prev) => [...prev, message]);
         });
     }, [localStream]);
 
@@ -73,7 +79,7 @@ export default function RoomPage() {
         });
         return peer;
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const addPeer = (incomingSignal: any, callerId: string, stream: MediaStream | null) => {
         const peer = new Peer({ initiator: false, trickle: false, stream: stream ?? undefined });
         peer.on("signal", (signal) => {
@@ -102,20 +108,26 @@ export default function RoomPage() {
 
     const handleScreenShare = async () => {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        const videoTrack = screenStream.getVideoTracks()[0];
-        const sender = localStream?.getVideoTracks()[0];
-        if (sender && localStream) {
-            localStream.removeTrack(sender);
-            localStream.addTrack(videoTrack);
+        const screenTrack = screenStream.getVideoTracks()[0];
+        for (const peer of Object.values(peersRef.current)) {
+            const sender = peer.streams[0]?.getVideoTracks()[0];
+            if (sender) peer.replaceTrack(sender, screenTrack, peer.streams[0]);
         }
     };
 
     const handleLeave = () => {
+        Object.values(peersRef.current).forEach((peer) => peer.destroy());
+        peersRef.current = {};
         socket.disconnect();
         router.push("/home");
     };
 
     const toggleChat = () => setIsChatOpen((prev) => !prev);
+
+    const sendMessage = (msg: string) => {
+        socket.emit("chat-message", msg);
+        setChatMessages((prev) => [...prev, `You: ${msg}`]);
+    };
 
     const allParticipants = [
         { id: "local", stream: localStream, name: "You" },
@@ -167,8 +179,27 @@ export default function RoomPage() {
 
             {isChatOpen && (
                 <div className="absolute top-0 right-0 w-64 h-full bg-white text-black p-4 shadow-lg">
-                    <h3 className="font-semibold mb-2">Chat (coming soon)</h3>
-                    <div className="text-sm text-muted-foreground">Chat UI placeholder</div>
+                    <h3 className="font-semibold mb-2">Chat</h3>
+                    <div className="h-[80%] overflow-y-scroll mb-2">
+                        {chatMessages.map((msg, i) => (
+                            <div key={i} className="text-sm my-1">{msg}</div>
+                        ))}
+                    </div>
+                    <form
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            const input = e.currentTarget.elements.namedItem("msg") as HTMLInputElement;
+                            const value = input.value.trim();
+                            if (value) sendMessage(value);
+                            input.value = "";
+                        }}
+                        className="flex gap-2"
+                    >
+                        <input name="msg" className="flex-1 border px-2 py-1 text-sm" />
+                        <Button type="submit" size="sm">
+                            Send
+                        </Button>
+                    </form>
                 </div>
             )}
         </div>
