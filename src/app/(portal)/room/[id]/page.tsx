@@ -21,7 +21,8 @@ interface AllUsersPayload { userId: string; userName: string; }
 interface UserJoinedRoomPayload { userId: string; userName: string; }
 
 export default function RoomPage() {
-    const { id: roomId } = useParams();
+    const params = useParams();
+    const roomId = params?.id as string | undefined;
     const router = useRouter();
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
     const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
@@ -46,15 +47,18 @@ export default function RoomPage() {
     // 2) build socket once localStream is ready
     useEffect(() => {
         if (!localStream) return;
-        if (socketRef.current) return;            // guard against Strict Mode double-run
+        if (socketRef.current) return;          
 
         const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL!;
         const socket = io(SOCKET_URL, {
             path: "/socket.io",
-            transports: ["websocket"],              // skip polling entirely
+            transports: ["polling", "websocket"],              // skip polling entirely
             withCredentials: true,
             autoConnect: false,                     // we’ll connect manually
         });
+        socket.on("connect", () => console.log("✅ Client‐side socket connected as", socket.id));
+        socket.on("connect_error", (err) => console.error("❌ Client connect_error:", err));
+        socket.on("disconnect", (reason) => console.warn("⚠️ Client disconnected:", reason));
         socketRef.current = socket;
 
         // debug logs
