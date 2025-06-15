@@ -52,7 +52,7 @@ export default function RoomPage() {
         const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL!;
         const socket = io(SOCKET_URL, {
             path: "/socket.io",
-            transports: ["websocket"],              // skip polling entirely
+            transports: ["polling"],              // skip polling entirely
             withCredentials: true,
             autoConnect: false,                     // we’ll connect manually
         });
